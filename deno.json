@@ -1,0 +1,24 @@
+{
+  "name": "no-sleep",
+  "version": "0.1.0",
+  "exports": "./main.ts",
+  "tasks": {
+    "dev": "DENO_TLS_CA_STORE=system deno desktop -A --hmr main.ts",
+    "check": "deno check --desktop main.ts",
+    "icons": "swift scripts/gen_icons.swift icons && deno run -A scripts/embed_icons.ts",
+    "build": "DENO_TLS_CA_STORE=system sh scripts/build.sh"
+  },
+  "desktop": {
+    "app": {
+      "name": "Cafmoda",
+      "identifier": "dev.osim.no-sleep",
+      "icons": {
+        "macos": "./icons/app.png"
+      }
+    },
+    "backend": "webview",
+    "output": {
+      "macos": "./dist/Cafmoda"
+    }
+  }
+}
