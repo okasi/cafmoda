@@ -1,0 +1,14 @@
+# macOS metadata
+.DS_Store
+._*
+
+# Generated application bundles
+/dist/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log

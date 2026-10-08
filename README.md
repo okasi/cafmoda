@@ -25,7 +25,7 @@ repeatedly entering commands or an administrator password.
 **[Passwordless setup](#one-time-passwordless-setup)** ·
 **[FAQ](#frequently-asked-questions)** · **[Development](#development)**
 
-## ☕ Two modes, one menu
+## Two modes, one menu
 
 | Mode                                    | What it does                                       | How it works                                             | Admin access    |
 | --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------- | --------------- |
@@ -43,7 +43,7 @@ repeatedly entering commands or an administrator password.
 - **Live state checks.** The app checks sleep settings and matching Caffeinate
   processes every two seconds.
 
-## 🚀 Get started
+## Get started
 
 ### Requirements
 
@@ -127,7 +127,7 @@ If the menu offers **Enable passwordless Modafinilate…**, setup has not been
 detected. Use that action to install or repair the rule. The internal filename
 remains `no-sleep` so renaming the app preserves existing installations.
 
-## 💬 Frequently asked questions
+## Frequently asked questions
 
 ### What is Cafmoda?
 
@@ -186,7 +186,7 @@ or the battery sleep timer is zero. Caffeinate detects processes matching
 `caffeinate -d`, including one started outside the app; turning it off also
 stops those matching processes.
 
-## 🛠️ Development
+## Development
 
 Run the app with hot reload:
 
