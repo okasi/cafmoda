@@ -45,7 +45,23 @@ repeatedly entering commands or an administrator password.
 
 ## Get started
 
-### Requirements
+### 📥 Download and install
+
+**[Download Cafmoda for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.1.0-macOS-arm64.dmg)**
+
+1. Open the downloaded disk image (`.dmg`).
+2. Drag **Cafmoda.app** onto **Applications**.
+3. Open Cafmoda from Applications and look for the coffee cup in the menu bar.
+
+The installer includes the runtime; no Deno installation is needed. This release
+is for **Apple Silicon (arm64)**. Intel Macs need a build made on Intel hardware.
+The app is **ad hoc signed and not notarized by Apple**, so macOS may block it.
+Only proceed if you trust the download. The disk image also includes installation
+notes. SHA-256 checksums are available on the
+[release page](https://github.com/okasi/cafmoda/releases/latest).
+
+
+### Build-from-source requirements
 
 You need **macOS** and **Deno 2.9 or later** to build from source. Deno Desktop
 is experimental; this project has been built and launched with Deno 2.9.7 on
@@ -210,6 +226,9 @@ native tray menus. The main files are:
 | [scripts/build.sh](scripts/build.sh)                     | macOS application packaging.                   |
 | [scripts/install-sudoers.sh](scripts/install-sudoers.sh) | Terminal setup for passwordless Modafinilate.  |
 | [scripts/gen_icons.swift](scripts/gen_icons.swift)       | App and tray artwork generation.               |
+
+To create a downloadable disk image from source, run `deno task package`. The
+installer and `SHA256SUMS.txt` are written to `dist/`.
 
 ## Troubleshooting
 
