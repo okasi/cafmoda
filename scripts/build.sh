@@ -22,7 +22,7 @@ LAUNCHER="$BUNDLE/Contents/MacOS/laufey_webview"
 printf '#!/bin/sh\nset -eu\nPAYLOAD_HASH="%s"\n' "$PAYLOAD_HASH" > "$LAUNCHER"
 cat >> "$LAUNCHER" <<'EOF'
 DIR="$(cd "$(dirname "$0")" && pwd)"
-DEST="$HOME/Library/Application Support/dev.osim.no-sleep/$PAYLOAD_HASH"
+DEST="$HOME/Library/Application Support/dev.osim.cafmoda/$PAYLOAD_HASH"
 APP="$DEST/Cafmoda.app"
 if [ ! -x "$APP/Contents/MacOS/laufey_webview" ]; then
   mkdir -p "$(dirname "$DEST")"

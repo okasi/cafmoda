@@ -119,7 +119,7 @@ your previous settings.
 
 **Caffeinate never needs an administrator password.** Modafinilate needs
 permission to change power settings. Its first setup installs a sudoers entry at
-`/etc/sudoers.d/no-sleep`, validated with `visudo`.
+`/etc/sudoers.d/cafmoda`, validated with `visudo`.
 
 The entry grants your user passwordless access to these two command patterns:
 
@@ -140,8 +140,9 @@ sh scripts/install-sudoers.sh
 ```
 
 If the menu offers **Enable passwordless Modafinilate…**, setup has not been
-detected. Use that action to install or repair the rule. The internal filename
-remains `no-sleep` so renaming the app preserves existing installations.
+detected. Use that action to install or repair the rule at
+`/etc/sudoers.d/cafmoda`. Existing passwordless permissions are detected
+automatically, so they do not need to be reinstalled after updating the app.
 
 ## Frequently asked questions
 
@@ -239,7 +240,7 @@ has hidden it among other menu bar items.
 the error log:
 
 ```sh
-tail -n 50 "$HOME/Library/Logs/no-sleep.log"
+tail -n 50 "$HOME/Library/Logs/cafmoda.log"
 ```
 
 **You want to inspect the current power settings:** these read-only commands do

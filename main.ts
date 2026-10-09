@@ -43,13 +43,13 @@ const PMSET_OFF: string[][] = [["-b", "sleep", "5"], [
 ]];
 
 // sudoers drop-in installed via the "Enable passwordless Modafinilate" menu item.
-const SUDOERS_PATH = "/etc/sudoers.d/no-sleep";
+const SUDOERS_PATH = "/etc/sudoers.d/cafmoda";
 const SUDOERS_LINE = `${Deno.env.get("USER") ?? "ALL"} ALL=(ALL) NOPASSWD: ` +
   `/usr/bin/pmset -b sleep *, /usr/bin/pmset -b disablesleep *`;
 
 const CAFFEINATE_PATTERN = "^(/usr/bin/)?caffeinate -d$";
 const POLL_MS = 2000;
-const LOG_PATH = `${Deno.env.get("HOME")}/Library/Logs/no-sleep.log`;
+const LOG_PATH = `${Deno.env.get("HOME")}/Library/Logs/cafmoda.log`;
 const APP_NAME = "Cafmoda";
 
 function logErr(e: unknown): void {

@@ -1,5 +1,5 @@
 {
-  "name": "no-sleep",
+  "name": "cafmoda",
   "version": "0.1.0",
   "exports": "./main.ts",
   "tasks": {
@@ -12,7 +12,7 @@
   "desktop": {
     "app": {
       "name": "Cafmoda",
-      "identifier": "dev.osim.no-sleep",
+      "identifier": "dev.osim.cafmoda",
       "icons": {
         "macos": "./icons/app.png"
       }
