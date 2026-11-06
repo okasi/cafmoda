@@ -6,7 +6,8 @@ sh scripts/build-native.sh
 # laufey_webview, and its outer bundle signing fails on macOS.
 STAGING="$(mktemp -d -t cafmoda-build)"
 trap 'rm -rf "$STAGING"' EXIT
-deno desktop -A --no-check --include native/tray-menu.dylib -o "$STAGING/Cafmoda" main.ts
+deno desktop -A --no-check --include native/tray-menu.dylib \
+  --include native/lid-brightness.dylib -o "$STAGING/Cafmoda" main.ts
 PAYLOAD_APP="$STAGING/Cafmoda.app"
 PLIST="$PAYLOAD_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Cafmoda' "$PLIST"
@@ -14,6 +15,8 @@ PLIST="$PAYLOAD_APP/Contents/Info.plist"
 
 BUNDLE="$STAGING/packaged/Cafmoda.app"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
+xcrun clang -fobjc-arc -fblocks -Wall -Wextra -Werror -framework Cocoa \
+  native/login-item.m -o "$BUNDLE/Contents/MacOS/cafmoda-anti-sleep"
 cp "$PLIST" "$BUNDLE/Contents/Info.plist"
 cp "$PAYLOAD_APP/Contents/Resources/AppIcon.icns" "$BUNDLE/Contents/Resources/"
 # System tar handles xz on macOS; recipients need no extra decompressor.

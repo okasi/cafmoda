@@ -13,6 +13,7 @@ async function withHome(test: (home: string) => Promise<void>): Promise<void> {
 async function makeApp(path: string): Promise<void> {
   await Deno.mkdir(`${path}/Contents/MacOS`, { recursive: true });
   await Deno.writeTextFile(`${path}/Contents/MacOS/laufey_webview`, "");
+  await Deno.writeTextFile(`${path}/Contents/MacOS/cafmoda-anti-sleep`, "");
 }
 
 Deno.test("login startup persists and produces a valid plist for the outer app", async () => {
@@ -34,7 +35,7 @@ Deno.test("login startup persists and produces a valid plist for the outer app",
     const plist = JSON.parse(new TextDecoder().decode(result.stdout));
     assert.deepEqual(plist, {
       Label: "dev.osim.cafmoda.login",
-      ProgramArguments: ["/usr/bin/open", "-g", app],
+      ProgramArguments: [`${app}/Contents/MacOS/cafmoda-anti-sleep`],
       RunAtLoad: true,
       LimitLoadToSessionType: "Aqua",
     });
@@ -46,6 +47,48 @@ Deno.test("login startup persists and produces a valid plist for the outer app",
       Deno.readDir(`${home}/Library/LaunchAgents`),
     );
     assert.equal((await entries).length, 1);
+  });
+});
+
+Deno.test("startup migrates the generic open entry and preserves the enabled choice", async () => {
+  await withHome(async (home) => {
+    const app = `${home}/Cafmoda.app`;
+    await makeApp(app);
+    const directory = `${home}/Library/LaunchAgents`;
+    await Deno.mkdir(directory, { recursive: true });
+    const path = `${directory}/dev.osim.cafmoda.login.plist`;
+    await Deno.writeTextFile(
+      path,
+      `<?xml version="1.0"?>
+<plist version="1.0"><dict>
+<key>Label</key><string>dev.osim.cafmoda.login</string>
+<key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>${app}</string></array>
+<key>RunAtLoad</key><true/>
+</dict></plist>`,
+    );
+    const login = new LaunchAtLogin(home, app);
+    await login.updateRegistration();
+    assert.equal(await login.isEnabled(), true);
+    const migrated = await Deno.readTextFile(path);
+    assert.ok(migrated.includes("cafmoda-anti-sleep"));
+    assert.ok(!migrated.includes("/usr/bin/open"));
+    const entries = await Array.fromAsync(Deno.readDir(directory));
+    assert.equal(entries.length, 1);
+    await login.setEnabled(false);
+    await login.updateRegistration();
+    assert.equal(await login.isEnabled(), false);
+  });
+});
+
+Deno.test("development startup preserves existing login registration", async () => {
+  await withHome(async (home) => {
+    const app = `${home}/Cafmoda.app`;
+    await makeApp(app);
+    await new LaunchAtLogin(home, app).setEnabled(true);
+    const path = `${home}/Library/LaunchAgents/dev.osim.cafmoda.login.plist`;
+    const original = await Deno.readTextFile(path);
+    await new LaunchAtLogin(home, undefined).updateRegistration();
+    assert.equal(await Deno.readTextFile(path), original);
   });
 });
 

@@ -1,11 +1,11 @@
 {
   "name": "cafmoda",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "exports": "./main.ts",
   "tasks": {
     "dev": "sh scripts/build-native.sh && DENO_TLS_CA_STORE=system deno desktop -A --hmr main.ts",
     "check": "deno check --desktop main.ts",
-    "test": "deno test --allow-read --allow-write --allow-run=/usr/bin/plutil launch-at-login_test.ts && sh scripts/test-native.sh",
+    "test": "deno test --allow-read --allow-write --allow-run=/usr/bin/plutil launch-at-login_test.ts lid-brightness_test.ts && sh scripts/test-native.sh",
     "test:tray-runtime": "sh scripts/test-tray-runtime.sh",
     "icons": "swift scripts/gen_icons.swift icons && deno run -A scripts/embed_icons.ts",
     "build": "DENO_TLS_CA_STORE=system sh scripts/build.sh",

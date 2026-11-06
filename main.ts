@@ -21,6 +21,7 @@ import {
 import { hasPasswordlessPmset } from "./sudo-permissions.ts";
 import { NativeTray, type TrayMenuItem } from "./tray-menu.ts";
 import { LaunchAtLogin } from "./launch-at-login.ts";
+import { watchLidBrightness } from "./lid-brightness.ts";
 
 // Icon per state: pill behind cup = pmset on, filled cup = caffeinate on.
 const ICONS = {
@@ -176,6 +177,17 @@ keepAliveWindow.addEventListener("close", (e) => e.preventDefault());
 keepAliveWindow.show();
 
 const tray = await NativeTray.create();
+const stopLidBrightness = await watchLidBrightness(logErr).catch((error) => {
+  logErr(error);
+  return () => {};
+});
+globalThis.addEventListener("unload", stopLidBrightness);
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  Deno.addSignalListener(signal, () => {
+    stopLidBrightness();
+    Deno.exit(0);
+  });
+}
 let sudoOk = false;
 let lastMenuKey = "";
 const launchAtLogin = new LaunchAtLogin(
@@ -213,6 +225,7 @@ function buildMenu(s: State): TrayMenuItem[] {
         }`,
         id: "toggle-caffeinate",
         enabled: true,
+        checked: s.caffeinate,
       },
     },
     {
@@ -220,6 +233,7 @@ function buildMenu(s: State): TrayMenuItem[] {
         label: `Modafinilate (Prevent System Sleep): ${s.pmset ? "On" : "Off"}`,
         id: "toggle-pmset",
         enabled: true,
+        checked: s.pmset,
       },
     },
   ];
@@ -337,6 +351,7 @@ function handleMenuClick(id: string | undefined): void {
       break;
     case "quit":
       void (async () => {
+        stopLidBrightness();
         if (caffeinate !== null) {
           await run("/usr/bin/pkill", ["-f", CAFFEINATE_PATTERN]);
         }
@@ -357,6 +372,7 @@ tray.addEventListener("menuclick", (e) => {
 });
 
 const menuReady = (async () => {
+  await launchAtLogin.updateRegistration();
   sudoOk = await sudoConfigured();
   await refresh();
 })();

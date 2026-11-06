@@ -19,7 +19,7 @@ Caffeinate; a pill indicates Modafinilate. There is no Dock icon.
 
 ## Install
 
-**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.1.0-macOS-arm64.dmg)**
+**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.2.0-macOS-arm64.dmg)**
 
 Open the disk image, drag **Cafmoda.app** to **Applications**, then launch it.
 The runtime is included; Deno is not required. Intel Macs need a build made on

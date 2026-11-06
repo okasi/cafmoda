@@ -6,3 +6,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 xcrun clang -fobjc-arc -fblocks -Wall -Wextra -Werror -framework Cocoa \
   native/tray-menu-test.m -o "$TEST_DIR/tray-menu-test"
 "$TEST_DIR/tray-menu-test"
+xcrun clang -fblocks -Wall -Wextra -Werror \
+  -framework CoreGraphics -framework CoreFoundation -framework IOKit \
+  native/lid-brightness-test.c -o "$TEST_DIR/lid-brightness-test"
+"$TEST_DIR/lid-brightness-test"

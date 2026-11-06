@@ -1,4 +1,5 @@
 import { NativeTray } from "../tray-menu.ts";
+import { watchLidBrightness } from "../lid-brightness.ts";
 
 Deno.dock.setVisible(false);
 const keepAlive = new Deno.BrowserWindow({
@@ -9,6 +10,11 @@ const keepAlive = new Deno.BrowserWindow({
 });
 keepAlive.show();
 const tray = await NativeTray.create();
+// Verify the packaged helper loads and polls through Deno FFI in the real app.
+const stopLidBrightness = await watchLidBrightness((error) => {
+  console.error(error);
+  Deno.exit(1);
+});
 const icon = await Deno.readFile(
   new URL("../icons/tray-00.png", import.meta.url),
 );
@@ -37,9 +43,10 @@ const timer = setInterval(async () => {
   const nativeResult = await Deno.readTextFile(result).catch(() => "");
   if (nativeResult !== "native menu cycles passed") return;
   clearInterval(timer);
+  stopLidBrightness();
   tray.destroy();
   console.log(
-    "PASS: packaged Deno runtime opened both native menus 3 times; all 6 callbacks reached TypeScript; same position; foreground unchanged",
+    "PASS: packaged Deno runtime opened both native menus 3 times; all 6 callbacks reached TypeScript; same position; foreground unchanged; lid brightness helper loaded",
   );
   Deno.exit(0);
 }, 100);

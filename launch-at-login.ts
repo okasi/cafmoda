@@ -44,6 +44,12 @@ export class LaunchAtLogin {
     }
   }
 
+  async updateRegistration(): Promise<void> {
+    // Preserve the user's choice while replacing legacy /usr/bin/open entries
+    // and keeping the login helper pointed at the current installed bundle.
+    if (this.available && await this.isEnabled()) await this.setEnabled(true);
+  }
+
   async setEnabled(enabled: boolean): Promise<void> {
     if (!enabled) {
       try {
@@ -56,7 +62,8 @@ export class LaunchAtLogin {
     if (!this.#appPath) {
       throw new Error("Launch at Login is available in the packaged app");
     }
-    await Deno.stat(`${this.#appPath}/Contents/MacOS/laufey_webview`);
+    const helper = `${this.#appPath}/Contents/MacOS/cafmoda-anti-sleep`;
+    await Deno.stat(helper);
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -64,9 +71,7 @@ export class LaunchAtLogin {
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/open</string>
-    <string>-g</string>
-    <string>${escapeXml(this.#appPath)}</string>
+    <string>${escapeXml(helper)}</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>LimitLoadToSessionType</key><string>Aqua</string>
