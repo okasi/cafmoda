@@ -1,11 +1,12 @@
 #!/bin/sh
 set -eu
+sh scripts/build-native.sh
 
 # Package locally: Deno 2.9.7's --compress launcher targets Cafmoda instead of
 # laufey_webview, and its outer bundle signing fails on macOS.
 STAGING="$(mktemp -d -t cafmoda-build)"
 trap 'rm -rf "$STAGING"' EXIT
-deno desktop -A --no-check -o "$STAGING/Cafmoda" main.ts
+deno desktop -A --no-check --include native/tray-menu.dylib -o "$STAGING/Cafmoda" main.ts
 PAYLOAD_APP="$STAGING/Cafmoda.app"
 PLIST="$PAYLOAD_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Cafmoda' "$PLIST"
@@ -22,6 +23,9 @@ LAUNCHER="$BUNDLE/Contents/MacOS/laufey_webview"
 printf '#!/bin/sh\nset -eu\nPAYLOAD_HASH="%s"\n' "$PAYLOAD_HASH" > "$LAUNCHER"
 cat >> "$LAUNCHER" <<'EOF'
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# Keep login startup pointed at the user's bundle across payload updates.
+CAFMODA_APP_PATH="$(cd "$DIR/../.." && pwd)"
+export CAFMODA_APP_PATH
 DEST="$HOME/Library/Application Support/dev.osim.cafmoda/$PAYLOAD_HASH"
 APP="$DEST/Cafmoda.app"
 if [ ! -x "$APP/Contents/MacOS/laufey_webview" ]; then

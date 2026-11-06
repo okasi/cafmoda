@@ -2,13 +2,11 @@
 // Run with: deno task dev   (or bundle with: deno task build)
 //
 // Menu delivery:
-//   right-click -> native NSMenu via tray.setMenu()
-//   left-click  -> same menu popped under the icon via win.showContextMenu()
-// Both feed handleMenuClick().
+// Both mouse buttons open the same NSStatusItem.menu directly through AppKit.
 //
 // The webview backend quits when the last regular window closes. macOS
 // excludes utility panels from that check, so retain the regular startup
-// window, ordered on screen at zero opacity, as the context-menu host.
+// window, ordered on screen at zero opacity, to keep the backend alive.
 
 import {
   ICON_00,
@@ -21,6 +19,8 @@ import {
   ICON_11_DARK,
 } from "./icons.gen.ts";
 import { hasPasswordlessPmset } from "./sudo-permissions.ts";
+import { NativeTray, type TrayMenuItem } from "./tray-menu.ts";
+import { LaunchAtLogin } from "./launch-at-login.ts";
 
 // Icon per state: pill behind cup = pmset on, filled cup = caffeinate on.
 const ICONS = {
@@ -164,36 +164,46 @@ Deno.dock.setVisible(false); // menu-bar-only app: no dock icon, no Cmd-Tab
 // Adopt the regular startup window. A noActivate window is an NSPanel and
 // does not keep macOS alive when a dropdown closes. Zero opacity makes this
 // window invisible while show() keeps it eligible for the last-window check.
-const menuHost = new Deno.BrowserWindow({
+// Tray clicks never focus or reposition this window.
+const keepAliveWindow = new Deno.BrowserWindow({
   frameless: true,
   opacity: 0,
   width: 2,
   height: 2,
   resizable: false,
 });
-menuHost.addEventListener("close", (e) => e.preventDefault());
-menuHost.show();
+keepAliveWindow.addEventListener("close", (e) => e.preventDefault());
+keepAliveWindow.show();
 
-const tray = new Deno.Tray();
+const tray = await NativeTray.create();
 let sudoOk = false;
 let lastMenuKey = "";
-let currentMenu: Deno.MenuItem[] = [];
+const launchAtLogin = new LaunchAtLogin(
+  Deno.env.get("HOME")!,
+  Deno.env.get("CAFMODA_APP_PATH"),
+);
 
 interface State {
   caffeinate: boolean;
   pmset: boolean;
+  launchAtLogin: boolean;
 }
 
 async function readState(): Promise<State> {
-  const [caf, pm] = await Promise.all([
+  const [caf, pm, login] = await Promise.all([
     caffeinateRunning(),
     pmsetPreventingSleep(),
+    launchAtLogin.isEnabled(),
   ]);
-  return { caffeinate: caf || caffeinate !== null, pmset: pm };
+  return {
+    caffeinate: caf || caffeinate !== null,
+    pmset: pm,
+    launchAtLogin: login,
+  };
 }
 
-function buildMenu(s: State): Deno.MenuItem[] {
-  const menu: Deno.MenuItem[] = [
+function buildMenu(s: State): TrayMenuItem[] {
+  const menu: TrayMenuItem[] = [
     { item: { label: APP_NAME, enabled: false } },
     "separator",
     {
@@ -235,6 +245,17 @@ function buildMenu(s: State): Deno.MenuItem[] {
     },
     "separator",
     {
+      item: {
+        label: "Launch at Login",
+        id: "toggle-launch-at-login",
+        enabled: launchAtLogin.available,
+        checked: s.launchAtLogin,
+        tooltip: launchAtLogin.available
+          ? "Open Cafmoda automatically when you log in to your Mac."
+          : "Available when running the built Cafmoda app.",
+      },
+    },
+    {
       item: { label: `Quit ${APP_NAME}`, id: "quit", enabled: true },
     },
   );
@@ -243,7 +264,7 @@ function buildMenu(s: State): Deno.MenuItem[] {
 
 async function refresh(): Promise<State> {
   const s = await readState();
-  const key = `${s.caffeinate}|${s.pmset}|${sudoOk}`;
+  const key = `${s.caffeinate}|${s.pmset}|${sudoOk}|${s.launchAtLogin}`;
   if (key !== lastMenuKey) {
     lastMenuKey = key;
     const iconKey = `${s.caffeinate ? 1 : 0}${
@@ -257,8 +278,7 @@ async function refresh(): Promise<State> {
       }, ` +
         `Modafinilate (Prevent System Sleep) ${s.pmset ? "on" : "off"}`,
     );
-    currentMenu = buildMenu(s);
-    tray.setMenu(currentMenu);
+    tray.setMenu(buildMenu(s));
   }
   return s;
 }
@@ -277,32 +297,6 @@ async function withRefresh(fn: (s: State) => Promise<void>): Promise<void> {
     await refresh().catch(logErr);
   }
 }
-
-// AppKit needs the context-menu host active before opening a window-based
-// menu. Defer the popup to the next event-loop turn so activation can settle.
-// Quick repeat clicks arrive as dblclick rather than click in the backend.
-let openingMenu = false;
-async function openTrayMenu(): Promise<void> {
-  if (openingMenu) return;
-  openingMenu = true;
-  try {
-    await menuReady;
-    const b = tray.getBounds();
-    if (b === null || currentMenu.length === 0) return;
-    menuHost.setPosition(b.x, b.y + b.height);
-    menuHost.focus();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    // The macOS WebView backend uses bottom-origin content coordinates.
-    // Anchor at the host's top edge, directly below the status item's bounds.
-    menuHost.showContextMenu(0, menuHost.getSize()[1], currentMenu);
-  } catch (e) {
-    logErr(e);
-  } finally {
-    openingMenu = false;
-  }
-}
-tray.addEventListener("click", () => void openTrayMenu());
-tray.addEventListener("dblclick", () => void openTrayMenu());
 
 function handleMenuClick(id: string | undefined): void {
   switch (id) {
@@ -336,37 +330,31 @@ function handleMenuClick(id: string | undefined): void {
         sudoOk = await installSudoers();
       });
       break;
+    case "toggle-launch-at-login":
+      void withRefresh(async (s) => {
+        await launchAtLogin.setEnabled(!s.launchAtLogin);
+      });
+      break;
     case "quit":
       void (async () => {
         if (caffeinate !== null) {
           await run("/usr/bin/pkill", ["-f", CAFFEINATE_PATTERN]);
         }
-        // Destroy the tray, then self-SIGKILL: exit() runs C++ static
-        // destructors off the main thread, where NSStatusItem teardown
-        // crashes AppKit ("Must only be used from the main thread").
+        // NativeTray destroys its status item on AppKit's main thread.
         try {
           tray.destroy();
         } catch (e) {
           logErr(e);
         }
-        await run("/bin/kill", ["-KILL", String(Deno.pid)]);
-        Deno.exit(0); // unreachable unless kill fails
+        Deno.exit(0);
       })();
       break;
   }
 }
 
 tray.addEventListener("menuclick", (e) => {
-  handleMenuClick(e.detail?.id);
+  handleMenuClick((e as CustomEvent<{ id: string }>).detail.id);
 });
-menuHost.addEventListener("contextmenuclick", (e) => {
-  handleMenuClick(e.detail?.id);
-});
-
-if (tray.trayId === 0) {
-  console.error("Could not create a menu bar item on this system.");
-  Deno.exit(1);
-}
 
 const menuReady = (async () => {
   sudoOk = await sudoConfigured();
@@ -375,6 +363,6 @@ const menuReady = (async () => {
 await menuReady;
 setInterval(() => refresh().catch(logErr), POLL_MS);
 console.log(
-  `${APP_NAME} running, tray id ${tray.trayId}, ` +
+  `${APP_NAME} running, native tray menu, ` +
     `sudo ${sudoOk ? "ok" : "not configured"}`,
 );

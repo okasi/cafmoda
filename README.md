@@ -42,6 +42,7 @@ repeatedly entering commands or an administrator password.
 - **Menu bar only.** No Dock icon or regular app window to manage.
 - **Live state checks.** The app checks sleep settings and matching Caffeinate
   processes every two seconds.
+- **Launch at Login.** Start Cafmoda automatically when you log in to your Mac.
 
 ## Get started
 
@@ -66,6 +67,8 @@ notes. SHA-256 checksums are available on the
 You need **macOS** and **Deno 2.9 or later** to build from source. Deno Desktop
 is experimental; this project has been built and launched with Deno 2.9.7 on
 Apple Silicon. Other hardware and macOS versions have not been verified here.
+Xcode Command Line Tools are also required to compile the small native tray-menu
+helper. Both `deno task dev` and `deno task build` compile it automatically.
 
 Install Deno using its
 [official installation guide](https://docs.deno.com/runtime/getting_started/installation/).
@@ -191,10 +194,21 @@ sleep prevention through `pmset`, but behavior can depend on the Mac, power
 source, peripherals, and macOS. Do not assume an unattended task will continue
 with the lid closed.
 
-### Does it include timers or automatic launch at login?
+### Can Cafmoda launch automatically at login?
 
-The current app has manual toggles. It does not include a duration timer,
-scheduling, or a built-in launch-at-login setting.
+Yes. Choose **Launch at Login** in the menu; a checkmark means it is enabled.
+Choose it again to disable it. The setting is off by default and applies to
+your macOS user account. Opening Cafmoda does not automatically enable either
+sleep-prevention mode.
+
+Install the app in Applications before enabling this option. If you move the
+app afterward, turn Launch at Login off and back on from its new location.
+The option is disabled in the development hot-reload session.
+
+This uses a per-user LaunchAgent at
+`~/Library/LaunchAgents/dev.osim.cafmoda.login.plist`, which opens your app bundle
+at login. It does not require an administrator password. The app does not
+include timers or scheduling.
 
 ### Why does the menu show a mode as on before I enable it?
 
@@ -214,6 +228,8 @@ deno task dev
 | Task              | Purpose                                                               |
 | ----------------- | --------------------------------------------------------------------- |
 | `deno task check` | Type-check the app with Deno Desktop types.                           |
+| `deno task test`  | Test login startup and real AppKit menu event handling without changing login settings. |
+| `deno task test:tray-runtime` | Test both mouse buttons, positioning, foreground focus, and TypeScript callbacks in a packaged desktop test app. |
 | `deno task build` | Bundle, name, and ad hoc sign the macOS app.                          |
 | `deno task icons` | Regenerate the artwork and embedded TypeScript icons. Requires Swift. |
 
@@ -223,10 +239,19 @@ native tray menus. The main files are:
 | File                                                     | Responsibility                                 |
 | -------------------------------------------------------- | ---------------------------------------------- |
 | [main.ts](main.ts)                                       | Menu, state polling, and sleep controls.       |
+| [launch-at-login.ts](launch-at-login.ts)                  | Per-user login startup registration.          |
+| [tray-menu.ts](tray-menu.ts)                            | Native tray bindings and menu action callbacks. |
+| [native/tray-menu.m](native/tray-menu.m)                 | Standard macOS status item, menu, and icons. |
 | [sudo-permissions.ts](sudo-permissions.ts)               | Detection of passwordless `pmset` permissions. |
 | [scripts/build.sh](scripts/build.sh)                     | macOS application packaging.                   |
 | [scripts/install-sudoers.sh](scripts/install-sudoers.sh) | Terminal setup for passwordless Modafinilate.  |
 | [scripts/gen_icons.swift](scripts/gen_icons.swift)       | App and tray artwork generation.               |
+
+The menu bar icon uses AppKit's `NSStatusItem.menu` directly. macOS handles both
+mouse buttons using the same menu and position without activating a host window.
+The native integration tests open and select from the real menu. The runtime
+test additionally verifies that all selections reach TypeScript through FFI.
+These tests briefly display a separate test icon and menu in the menu bar.
 
 To create a downloadable disk image from source, run `deno task package`. The
 installer and `SHA256SUMS.txt` are written to `dist/`.

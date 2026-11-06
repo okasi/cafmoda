@@ -4,6 +4,7 @@
 
 # Generated application bundles
 /dist/
+native/*.dylib
 
 # Local configuration and credentials
 .env
