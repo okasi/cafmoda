@@ -22,6 +22,8 @@ import { hasPasswordlessPmset } from "./sudo-permissions.ts";
 import { NativeTray, type TrayMenuItem } from "./tray-menu.ts";
 import { LaunchAtLogin } from "./launch-at-login.ts";
 import { watchLidBrightness } from "./lid-brightness.ts";
+import { PowerPolicy, PowerSettings } from "./power-policy.ts";
+import { powerBackend, PowerMonitor, run } from "./power-runtime.ts";
 
 // Icon per state: pill behind cup = pmset on, filled cup = caffeinate on.
 const ICONS = {
@@ -31,27 +33,30 @@ const ICONS = {
   "11": [ICON_11, ICON_11_DARK],
 } as const;
 
-// pmset settings applied on battery (-b) when "Modafinilate" is toggled.
-const PMSET_ON: string[][] = [["-b", "sleep", "0"], [
-  "-b",
-  "disablesleep",
-  "1",
-]];
-const PMSET_OFF: string[][] = [["-b", "sleep", "5"], [
+const SLEEP_PERMISSIONS = [["-b", "sleep", "0"], ["-b", "sleep", "5"], [
   "-b",
   "disablesleep",
   "0",
-]];
-
-// sudoers drop-in installed via the "Enable passwordless Modafinilate" menu item.
+], ["-b", "disablesleep", "1"]];
+const ENERGY_PERMISSIONS = [
+  ["-b", "lowpowermode", "0"],
+  ["-b", "lowpowermode", "1"],
+  ["-b", "powermode", "0"],
+  ["-b", "powermode", "1"],
+  ["-b", "powermode", "2"],
+];
 const SUDOERS_PATH = "/etc/sudoers.d/cafmoda";
 const SUDOERS_LINE = `${Deno.env.get("USER") ?? "ALL"} ALL=(ALL) NOPASSWD: ` +
-  `/usr/bin/pmset -b sleep *, /usr/bin/pmset -b disablesleep *`;
-
-const CAFFEINATE_PATTERN = "^(/usr/bin/)?caffeinate -d$";
-const POLL_MS = 2000;
+  [
+    "/usr/bin/pmset -b sleep *",
+    "/usr/bin/pmset -b disablesleep *",
+    ...ENERGY_PERMISSIONS.map((args) => `/usr/bin/pmset ${args.join(" ")}`),
+  ].join(", ");
 const LOG_PATH = `${Deno.env.get("HOME")}/Library/Logs/cafmoda.log`;
 const APP_NAME = "Cafmoda";
+const SUPPORT_PATH = `${
+  Deno.env.get("HOME")
+}/Library/Application Support/dev.osim.cafmoda`;
 
 function logErr(e: unknown): void {
   const line = `[${new Date().toISOString()}] ` +
@@ -73,75 +78,48 @@ globalThis.addEventListener("unhandledrejection", (e) => {
   logErr(e.reason);
 });
 
-type CmdResult = { ok: boolean; out: string; err: string };
-
-async function run(cmd: string, args: string[]): Promise<CmdResult> {
-  const { code, stdout, stderr } = await new Deno.Command(cmd, {
-    args,
-    env: { LC_ALL: "C" },
-    stdout: "piped",
-    stderr: "piped",
-  }).output();
-  const dec = new TextDecoder();
-  return {
-    ok: code === 0,
-    out: dec.decode(stdout),
-    err: dec.decode(stderr),
-  };
-}
-
-// --- state ---
-
-async function caffeinateRunning(): Promise<boolean> {
-  const r = await run("/usr/bin/pgrep", ["-f", CAFFEINATE_PATTERN]);
-  return r.ok;
-}
-
-// "Modafinilate" is on when disablesleep is set or battery sleep timer is 0.
-async function pmsetPreventingSleep(): Promise<boolean> {
-  const g = await run("/usr/bin/pmset", ["-g"]);
-  if (/^\s*SleepDisabled\s+1\s*$/m.test(g.out)) return true;
-  const custom = await run("/usr/bin/pmset", ["-g", "custom"]);
-  const battery =
-    custom.out.split("Battery Power:")[1]?.split("AC Power:")[0] ??
-      "";
-  return /^\s*sleep\s+0\s*$/m.test(battery);
-}
-
-// Inspect passwordless rules without changing settings or using cached auth.
-// pmset -g is deliberately outside the app's sudoers rule.
+const backend = powerBackend(
+  `${SUPPORT_PATH}/power-recovery.json`,
+  (key, value) => monitor.write(key, value),
+);
+const settings = new PowerSettings(backend);
+const policy = new PowerPolicy(settings);
+let energyKey = "lowpowermode";
 async function sudoConfigured(): Promise<boolean> {
   const r = await run("/usr/bin/sudo", ["-n", "-k", "-ll"]);
-  return r.ok && hasPasswordlessPmset(r.out, [...PMSET_ON, ...PMSET_OFF]);
+  return r.ok && hasPasswordlessPmset(r.out, [
+    ...SLEEP_PERMISSIONS,
+    ...ENERGY_PERMISSIONS.filter((args) => args[1] === energyKey),
+  ]);
 }
 
-// --- actions ---
-
+// Keep a handle to our own assertion. -w also releases it on a force quit.
 let caffeinate: Deno.ChildProcess | null = null;
-
 async function setCaffeinate(on: boolean): Promise<void> {
-  if (on) {
-    caffeinate = new Deno.Command("caffeinate", {
-      args: ["-d"],
+  if (on && !caffeinate) {
+    const child = new Deno.Command("/usr/bin/caffeinate", {
+      args: ["-d", "-w", String(Deno.pid)],
       stdin: "null",
       stdout: "null",
       stderr: "null",
     }).spawn();
-    caffeinate.status.then(() => (caffeinate = null));
-  } else {
-    await run("/usr/bin/pkill", ["-f", CAFFEINATE_PATTERN]);
-  }
-}
-
-async function setPmset(on: boolean): Promise<boolean> {
-  for (const args of on ? PMSET_ON : PMSET_OFF) {
-    const r = await run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", ...args]);
-    if (!r.ok) {
-      logErr(new Error(`pmset failed: ${r.err.trim()}`));
-      return false;
+    caffeinate = child;
+    void child.status.then(() => {
+      if (caffeinate === child) {
+        caffeinate = null;
+        scheduleRefresh();
+      }
+    });
+  } else if (!on && caffeinate) {
+    const child = caffeinate;
+    caffeinate = null;
+    try {
+      child.kill("SIGTERM");
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
     }
+    await child.status;
   }
-  return true;
 }
 
 // One-time setup: write the sudoers line to a temp file, then install it as
@@ -177,15 +155,20 @@ keepAliveWindow.addEventListener("close", (e) => e.preventDefault());
 keepAliveWindow.show();
 
 const tray = await NativeTray.create();
-const stopLidBrightness = await watchLidBrightness(logErr).catch((error) => {
-  logErr(error);
-  return () => {};
-});
+const monitor = await PowerMonitor.create(
+  SUPPORT_PATH,
+  `${SUPPORT_PATH}/power-recovery.json`,
+  logErr,
+);
+const stopLidBrightness = await watchLidBrightness(logErr, monitor.subscribe)
+  .catch((error) => {
+    logErr(error);
+    return () => {};
+  });
 globalThis.addEventListener("unload", stopLidBrightness);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => {
-    stopLidBrightness();
-    Deno.exit(0);
+    void quit();
   });
 }
 let sudoOk = false;
@@ -199,24 +182,59 @@ interface State {
   caffeinate: boolean;
   pmset: boolean;
   launchAtLogin: boolean;
+  blocked: string | null;
+  baselinePreventsSleep: boolean;
+  autoLowPower: boolean;
 }
+let recoveryPending = false;
+let operationError: string | null = null;
+let quitting = false;
+let initialized = false;
+let fallback: ReturnType<typeof setInterval> | undefined;
 
 async function readState(): Promise<State> {
-  const [caf, pm, login] = await Promise.all([
-    caffeinateRunning(),
-    pmsetPreventingSleep(),
+  const [live, login] = await Promise.all([
+    settings.read(),
     launchAtLogin.isEnabled(),
   ]);
   return {
-    caffeinate: caf || caffeinate !== null,
-    pmset: pm,
+    caffeinate: caffeinate !== null,
+    pmset: policy.modafinilate,
     launchAtLogin: login,
+    blocked: !monitor.available
+      ? "Power monitoring unavailable"
+      : recoveryPending
+      ? "Power settings recovery pending"
+      : policy.reason,
+    baselinePreventsSleep: !policy.modafinilate &&
+      (live.disablesleep === 1 || live.sleep === 0),
+    autoLowPower: settings.changes.some((c) => c.key === energyKey),
   };
 }
 
 function buildMenu(s: State): TrayMenuItem[] {
   const menu: TrayMenuItem[] = [
     { item: { label: APP_NAME, enabled: false } },
+    {
+      item: {
+        label: s.blocked ??
+          (s.autoLowPower
+            ? "Low Power Mode · closed lid on battery"
+            : "Battery protection · cutoff at 8%"),
+        enabled: false,
+      },
+    },
+    ...(s.baselinePreventsSleep
+      ? [{
+        item: {
+          label: "Existing settings also prevent system sleep",
+          enabled: false,
+        },
+      }]
+      : []),
+    ...(operationError
+      ? [{ item: { label: operationError, enabled: false } }]
+      : []),
     "separator",
     {
       item: {
@@ -224,7 +242,7 @@ function buildMenu(s: State): TrayMenuItem[] {
           s.caffeinate ? "On" : "Off"
         }`,
         id: "toggle-caffeinate",
-        enabled: true,
+        enabled: !s.blocked || s.caffeinate,
         checked: s.caffeinate,
       },
     },
@@ -232,7 +250,7 @@ function buildMenu(s: State): TrayMenuItem[] {
       item: {
         label: `Modafinilate (Prevent System Sleep): ${s.pmset ? "On" : "Off"}`,
         id: "toggle-pmset",
-        enabled: true,
+        enabled: !s.blocked || s.pmset,
         checked: s.pmset,
       },
     },
@@ -240,7 +258,7 @@ function buildMenu(s: State): TrayMenuItem[] {
   if (!sudoOk) {
     menu.push({
       item: {
-        label: "Enable passwordless Modafinilate…",
+        label: "Enable power controls…",
         id: "setup-sudo",
         enabled: true,
       },
@@ -254,7 +272,7 @@ function buildMenu(s: State): TrayMenuItem[] {
           ? "Turn Everything Off"
           : "Turn Everything On",
         id: "toggle-all",
-        enabled: true,
+        enabled: !s.blocked || s.caffeinate || s.pmset,
       },
     },
     "separator",
@@ -278,7 +296,7 @@ function buildMenu(s: State): TrayMenuItem[] {
 
 async function refresh(): Promise<State> {
   const s = await readState();
-  const key = `${s.caffeinate}|${s.pmset}|${sudoOk}|${s.launchAtLogin}`;
+  const key = JSON.stringify([s, sudoOk, operationError]);
   if (key !== lastMenuKey) {
     lastMenuKey = key;
     const iconKey = `${s.caffeinate ? 1 : 0}${
@@ -297,88 +315,140 @@ async function refresh(): Promise<State> {
   return s;
 }
 
-let busy = false;
-
-async function withRefresh(fn: (s: State) => Promise<void>): Promise<void> {
-  if (busy) return; // ignore clicks while a toggle is in flight
-  busy = true;
-  try {
-    await fn(await readState());
-  } catch (e) {
-    logErr(e);
-  } finally {
-    busy = false;
+// All actions and native notifications share one queue: a battery or lid
+// transition cannot race a settings write, journal update, or user click.
+let work = Promise.resolve();
+function enqueue(action: () => Promise<void>): Promise<void> {
+  work = work.then(async () => {
+    if (quitting) return;
+    try {
+      operationError = null;
+      await action();
+    } catch (error) {
+      recoveryPending ||= settings.changes.length > 0;
+      operationError = "Power action failed · see cafmoda.log";
+      logErr(error);
+    }
     await refresh().catch(logErr);
+  });
+  return work;
+}
+
+async function reconcile(): Promise<void> {
+  if (recoveryPending) {
+    await setCaffeinate(false);
+    policy.modafinilate = false;
+    await settings.recover();
+    recoveryPending = false;
+  }
+  if (!monitor.available) {
+    await setCaffeinate(false);
+    await policy.setModafinilate(false);
+    await settings.restore();
+    return;
+  }
+  try {
+    await policy.reconcile(monitor.state, sudoOk);
+  } finally {
+    if (policy.reason) await setCaffeinate(false);
   }
 }
 
+function scheduleRefresh(): void {
+  if (initialized && !quitting) void enqueue(reconcile);
+}
+monitor.subscribe(scheduleRefresh);
+
 function handleMenuClick(id: string | undefined): void {
-  switch (id) {
-    case "toggle-caffeinate":
-      void withRefresh(async (s) => await setCaffeinate(!s.caffeinate));
-      break;
-    case "toggle-pmset":
-      void withRefresh(async (s) => {
-        if (!sudoOk) {
-          sudoOk = await installSudoers();
-          if (!sudoOk) return;
-        }
-        await setPmset(!s.pmset);
-      });
-      break;
-    case "toggle-all":
-      void withRefresh(async (s) => {
-        const target = !(s.caffeinate || s.pmset);
-        if (target !== s.pmset) {
-          if (!sudoOk) {
-            sudoOk = await installSudoers();
-            if (!sudoOk) return;
-          }
-          if (!(await setPmset(target))) return;
-        }
-        if (target !== s.caffeinate) await setCaffeinate(target);
-      });
-      break;
-    case "setup-sudo":
-      void withRefresh(async () => {
-        sudoOk = await installSudoers();
-      });
-      break;
-    case "toggle-launch-at-login":
-      void withRefresh(async (s) => {
-        await launchAtLogin.setEnabled(!s.launchAtLogin);
-      });
-      break;
-    case "quit":
-      void (async () => {
-        stopLidBrightness();
-        if (caffeinate !== null) {
-          await run("/usr/bin/pkill", ["-f", CAFFEINATE_PATTERN]);
-        }
-        // NativeTray destroys its status item on AppKit's main thread.
-        try {
-          tray.destroy();
-        } catch (e) {
-          logErr(e);
-        }
-        Deno.exit(0);
-      })();
-      break;
+  if (id === "quit") {
+    void quit();
+    return;
   }
+  void enqueue(async () => {
+    if (id === "setup-sudo") {
+      sudoOk = await installSudoers();
+      await reconcile();
+      return;
+    }
+    if (id === "toggle-launch-at-login") {
+      await launchAtLogin.setEnabled(!(await launchAtLogin.isEnabled()));
+      return;
+    }
+    await reconcile();
+    const s = await readState();
+    if (s.blocked && !s.caffeinate && !s.pmset) return;
+    if (id === "toggle-caffeinate") {
+      if (!s.blocked || s.caffeinate) await setCaffeinate(!s.caffeinate);
+    } else if (id === "toggle-pmset" || id === "toggle-all") {
+      const on = id === "toggle-all" ? !(s.pmset || s.caffeinate) : !s.pmset;
+      if (on && s.blocked) return;
+      if (on && !sudoOk) {
+        sudoOk = await installSudoers();
+        if (!sudoOk) return;
+        // The administrator dialog can take long enough for power to change.
+        await reconcile();
+        if ((await readState()).blocked) return;
+      }
+      await policy.setModafinilate(on);
+      if (id === "toggle-all") await setCaffeinate(on);
+    }
+  });
+}
+
+async function quit(): Promise<void> {
+  if (quitting) return;
+  quitting = true;
+  if (fallback !== undefined) clearInterval(fallback);
+  await work;
+  stopLidBrightness();
+  try {
+    await setCaffeinate(false);
+    await settings.restore();
+  } catch (error) {
+    logErr(error);
+  }
+  try {
+    await monitor.close();
+  } catch (error) {
+    logErr(error);
+  }
+  try {
+    tray.destroy();
+  } catch (error) {
+    logErr(error);
+  }
+  Deno.exit(0);
 }
 
 tray.addEventListener("menuclick", (e) => {
   handleMenuClick((e as CustomEvent<{ id: string }>).detail.id);
 });
 
-const menuReady = (async () => {
-  await launchAtLogin.updateRegistration();
-  sudoOk = await sudoConfigured();
-  await refresh();
-})();
-await menuReady;
-setInterval(() => refresh().catch(logErr), POLL_MS);
+await launchAtLogin.updateRegistration();
+const initialSettings = await settings.read();
+energyKey = initialSettings.powermode !== undefined
+  ? "powermode"
+  : "lowpowermode";
+sudoOk = await sudoConfigured();
+try {
+  await settings.recover();
+} catch (error) {
+  recoveryPending = true;
+  logErr(error);
+}
+initialized = true;
+await enqueue(reconcile);
+// Notifications handle power/lid changes immediately. Reconcile once a minute
+// for external pmset/login edits and transient recovery failures.
+fallback = setInterval(() => {
+  void monitor.refresh().catch(logErr);
+  void enqueue(async () => {
+    sudoOk = await sudoConfigured();
+    await reconcile();
+  });
+}, 60_000);
 console.log(
-  `${APP_NAME} running, native tray menu, ` +
-    `sudo ${sudoOk ? "ok" : "not configured"}`,
+  `${APP_NAME} running, event-driven power monitoring, cutoff 8%, sudo ${
+    sudoOk ? "ok" : "not configured"
+  }`,
 );

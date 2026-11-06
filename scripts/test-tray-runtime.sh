@@ -12,6 +12,7 @@ cat > "$TEST_DIR/deno.json" <<'JSON'
 JSON
 DENO_TLS_CA_STORE=system deno desktop --config "$TEST_DIR/deno.json" -A \
   --include native/tray-menu.dylib --include native/lid-brightness.dylib \
+  --include native/power-monitor \
   --include icons/tray-00.png \
   -o "$TEST_DIR/CafmodaTrayTest" native/tray-runtime-test.ts
 python3 - "$TEST_DIR" <<'PY'

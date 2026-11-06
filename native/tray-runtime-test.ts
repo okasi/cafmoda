@@ -1,5 +1,6 @@
 import { NativeTray } from "../tray-menu.ts";
 import { watchLidBrightness } from "../lid-brightness.ts";
+import { PowerMonitor } from "../power-runtime.ts";
 
 Deno.dock.setVisible(false);
 const keepAlive = new Deno.BrowserWindow({
@@ -10,11 +11,22 @@ const keepAlive = new Deno.BrowserWindow({
 });
 keepAlive.show();
 const tray = await NativeTray.create();
+const powerDirectory = await Deno.makeTempDir({
+  prefix: "cafmoda-power-runtime-",
+});
+const monitor = await PowerMonitor.create(
+  powerDirectory,
+  `${powerDirectory}/journal.json`,
+  (error) => {
+    console.error(error);
+    Deno.exit(1);
+  },
+);
 // Verify the packaged helper loads and polls through Deno FFI in the real app.
 const stopLidBrightness = await watchLidBrightness((error) => {
   console.error(error);
   Deno.exit(1);
-});
+}, monitor.subscribe);
 const icon = await Deno.readFile(
   new URL("../icons/tray-00.png", import.meta.url),
 );
@@ -44,9 +56,11 @@ const timer = setInterval(async () => {
   if (nativeResult !== "native menu cycles passed") return;
   clearInterval(timer);
   stopLidBrightness();
+  await monitor.close();
+  await Deno.remove(powerDirectory, { recursive: true });
   tray.destroy();
   console.log(
-    "PASS: packaged Deno runtime opened both native menus 3 times; all 6 callbacks reached TypeScript; same position; foreground unchanged; lid brightness helper loaded",
+    "PASS: packaged Deno runtime opened both native menus 3 times; all 6 callbacks reached TypeScript; same position; foreground unchanged; lid brightness and native power monitor loaded and closed",
   );
   Deno.exit(0);
 }, 100);

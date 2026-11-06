@@ -8,3 +8,6 @@ xcrun clang -dynamiclib -fblocks -Wall -Wextra -Werror \
   -framework CoreGraphics -framework CoreFoundation -framework IOKit \
   -o native/lid-brightness.dylib native/lid-brightness.c
 /usr/bin/codesign --force --sign - native/lid-brightness.dylib
+xcrun clang -fobjc-arc -fblocks -Wall -Wextra -Werror \
+  -framework Cocoa -framework IOKit native/power-monitor.m -o native/power-monitor
+/usr/bin/codesign --force --sign - native/power-monitor

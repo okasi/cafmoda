@@ -7,7 +7,7 @@ sh scripts/build-native.sh
 STAGING="$(mktemp -d -t cafmoda-build)"
 trap 'rm -rf "$STAGING"' EXIT
 deno desktop -A --no-check --include native/tray-menu.dylib \
-  --include native/lid-brightness.dylib -o "$STAGING/Cafmoda" main.ts
+  --include native/lid-brightness.dylib --include native/power-monitor -o "$STAGING/Cafmoda" main.ts
 PAYLOAD_APP="$STAGING/Cafmoda.app"
 PLIST="$PAYLOAD_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string Cafmoda' "$PLIST"

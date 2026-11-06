@@ -8,10 +8,10 @@ A macOS menu bar app for keeping your display awake and controlling system
 sleep. Built with TypeScript and Deno Desktop, using Apple’s `caffeinate` and
 `pmset`.
 
-| Mode             | Effect                                                                   | Admin access   |
-| ---------------- | ------------------------------------------------------------------------ | -------------- |
-| **Caffeinate**   | Keeps the display awake with `caffeinate -d`.                            | None           |
-| **Modafinilate** | Sets battery sleep to `0` and requests `disablesleep 1` with `pmset -b`. | One-time setup |
+| Mode             | Effect                                                               | Admin access   |
+| ---------------- | -------------------------------------------------------------------- | -------------- |
+| **Caffeinate**   | Keeps the display awake with `caffeinate -d`.                        | None           |
+| **Modafinilate** | Temporarily sets battery sleep to `0` and requests `disablesleep 1`. | One-time setup |
 
 Use either mode independently or **Turn Everything On / Off**. Left-click or
 right-click the menu bar icon to open the controls. A filled cup indicates
@@ -19,7 +19,7 @@ Caffeinate; a pill indicates Modafinilate. There is no Dock icon.
 
 ## Install
 
-**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.2.0-macOS-arm64.dmg)**
+**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.3.0-macOS-arm64.dmg)**
 
 Open the disk image, drag **Cafmoda.app** to **Applications**, then launch it.
 The runtime is included; Deno is not required. Intel Macs need a build made on
@@ -32,12 +32,32 @@ checksums are on the
 
 ## Usage
 
-- **Caffeinate:** prevents display sleep until disabled. Quitting stops the
-  process if Cafmoda started it.
-- **Modafinilate:** changes persistent power settings. **Turn it off before
-  quitting** to disable sleep prevention. Off sets battery sleep to **five
-  minutes** and `disablesleep` to **`0`**, rather than restoring previous
-  settings.
+- **Caffeinate:** prevents display sleep until disabled. Cafmoda stops only its
+  own process; the assertion also ends if Cafmoda crashes.
+- **Modafinilate:** saves the exact previous power settings before changing
+  them, and restores its changes when disabled or on quit. A separate native
+  monitor restores the saved settings if Cafmoda is force-quit or crashes.
+  Unfinished recovery is retried on the next launch; a journal remains on disk
+  until recovery succeeds. After a restart, recovery runs when Cafmoda next
+  launches (enable Launch at Login to run it at login).
+- **Battery cutoff:** at **8% or below while running on battery**, Cafmoda stops
+  its keep-awake controls and blocks reactivation. Plugging in or charging above
+  8% makes the controls available again, without restarting the old session. An
+  unreadable battery level while on battery also blocks keep-awake controls.
+- **Respect Low Power Mode:** Low Power Mode enabled by you stops Cafmoda's
+  keep-awake controls. Your energy mode is preserved.
+- **Closed lid on battery:** Cafmoda automatically enables battery Low Power
+  Mode while the lid is closed, independently of its keep-awake toggles. Opening
+  the lid, connecting power, or quitting restores the prior battery energy mode.
+  Cafmoda's own automatic Low Power Mode does not stop its keep-awake controls.
+  If you override the automatic mode, Cafmoda respects that choice until the lid
+  opens or the power source changes. Power controls must be authorized first.
+- **Existing settings:** Cafmoda preserves power settings that already prevent
+  sleep, and changes made outside the app. Its cutoff releases its own controls;
+  it cannot guarantee system sleep when your baseline or another app prevents
+  it. The menu identifies an existing never-sleep baseline. Older versions did
+  not record originals; the update preserves the current settings rather than
+  guessing what they used to be.
 - **Launch at Login:** enable it from the menu after installing in Applications.
   It is off by default, requires no admin access, and is unavailable during
   development hot reload. If you move the app, toggle it off and on again.
@@ -47,10 +67,11 @@ checksums are on the
   level. External displays are unaffected. This uses the private DisplayServices
   API and may be unavailable on some macOS versions.
 
-The menu checks sleep settings and matching `caffeinate -d` processes every two
-seconds, including processes started outside Cafmoda. Turning Caffeinate off
-also stops those matching processes. Modafinilate appears on if sleep is
-disabled or the battery sleep timer is zero.
+Native IOKit and system notifications drive power, battery, Low Power Mode, and
+lid updates. A once-a-minute fallback reconciles external settings and retries
+recovery; lid brightness is sampled every 30 seconds as a fallback. The mode
+checkmarks describe Cafmoda-owned controls. Other apps' `caffeinate` processes
+are not polled or terminated.
 
 Closed-lid operation is **not verified** and depends on hardware, power source,
 peripherals, and macOS. Lid dimming does not itself prevent sleep.
@@ -64,14 +85,21 @@ your user passwordless access to:
 ```text
 /usr/bin/pmset -b sleep *
 /usr/bin/pmset -b disablesleep *
+/usr/bin/pmset -b lowpowermode 0
+/usr/bin/pmset -b lowpowermode 1
+/usr/bin/pmset -b powermode 0
+/usr/bin/pmset -b powermode 1
+/usr/bin/pmset -b powermode 2
 ```
 
 The wildcards allow arguments beyond the app’s on/off values, but not arbitrary
-commands. Later toggles use `sudo -n`; permission checks do not rely on cached
-authentication.
+commands. Later changes use `sudo -n`; permission checks do not rely on cached
+authentication. The energy-mode rules allow only the explicit values shown.
+Existing installs need the power-control setup once more to add these rules.
+Cafmoda detects whether the system reports `lowpowermode` or `powermode` and
+changes only the battery profile; the AC profile is never changed.
 
-Choose **Enable passwordless Modafinilate…** to install or repair the rule, or
-run:
+Choose **Enable power controls…** to install or repair the rule, or run:
 
 ```sh
 sh scripts/install-sudoers.sh
@@ -110,7 +138,7 @@ requiring space for the unpacked runtime.
 | ----------------------------- | ----------------------------------------------------------------------------------------------- |
 | `deno task dev`               | Run with hot reload.                                                                            |
 | `deno task check`             | Type-check with Deno Desktop types.                                                             |
-| `deno task test`              | Test login startup, lid brightness, and native integration without changing login settings.     |
+| `deno task test`              | Test power policies, recovery, login startup, brightness, and native integration.               |
 | `deno task test:tray-runtime` | Verify real AppKit clicks, positioning, focus, and TypeScript callbacks in a packaged test app. |
 | `deno task build`             | Compile native helpers, bundle, and sign the app.                                               |
 | `deno task package`           | Create a disk image and `SHA256SUMS.txt` in `dist/`.                                            |
@@ -144,3 +172,18 @@ logs. Include your Deno version when building from source. For code changes, run
 `deno task check` and describe what you tested.
 
 Maintained by [okasi](https://github.com/okasi).
+
+## Power recovery
+
+[power-policy.ts](power-policy.ts) owns the power policies and settings journal;
+[power-runtime.ts](power-runtime.ts) connects to the notification and crash
+recovery helper in [native/power-monitor.m](native/power-monitor.m).
+
+The journal lives at
+`~/Library/Application Support/dev.osim.cafmoda/power-recovery.json` with
+user-only permissions. Recovery writes only allowlisted power settings. If a
+live setting differs from Cafmoda's applied value, recovery preserves the
+external change. A change to the same value is indistinguishable from Cafmoda's
+own value. Recovery failures retain the journal, appear in the menu and log, and
+block new keep-awake controls until recovery succeeds. After a restart, recovery
+occurs on Cafmoda's next launch.

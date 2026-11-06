@@ -69,6 +69,7 @@ const symbols = {
 
 export async function watchLidBrightness(
   onError: (error: unknown) => void,
+  subscribe?: (listener: () => void) => () => void,
 ): Promise<() => void> {
   const bytes = await Deno.readFile(
     new URL("./native/lid-brightness.dylib", import.meta.url),
@@ -113,11 +114,15 @@ export async function watchLidBrightness(
     }
   };
   poll();
-  const timer = setInterval(poll, 500);
+  // Lid/power notifications drive updates. A slow fallback samples brightness
+  // and retries failed writes; no half-second wakeups while the app is idle.
+  const unsubscribe = subscribe?.(poll);
+  const timer = setInterval(poll, 30_000);
   let stopped = false;
   return () => {
     if (stopped) return;
     stopped = true;
+    unsubscribe?.();
     clearInterval(timer);
     try {
       controller.restore();
