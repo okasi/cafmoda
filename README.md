@@ -19,7 +19,7 @@ Caffeinate; a pill indicates Modafinilate. There is no Dock icon.
 
 ## Install
 
-**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.3.0-macOS-arm64.dmg)**
+**[Download for macOS (Apple Silicon)](https://github.com/okasi/cafmoda/releases/latest/download/Cafmoda-0.3.1-macOS-arm64.dmg)**
 
 Open the disk image, drag **Cafmoda.app** to **Applications**, then launch it.
 The runtime is included; Deno is not required. Intel Macs need a build made on
@@ -35,7 +35,10 @@ checksums are on the
 - **Caffeinate:** prevents display sleep until disabled. Cafmoda stops only its
   own process; the assertion also ends if Cafmoda crashes.
 - **Modafinilate:** saves the exact previous power settings before changing
-  them, and restores its changes when disabled or on quit. A separate native
+  them, and restores its changes on quit. Turning Modafinilate off or choosing
+  **Turn Everything Off** also re-enables system/lid sleep and replaces a
+  disabled battery sleep timer with 5 minutes; existing nonzero timers are
+  preserved. A separate native
   monitor restores the saved settings if Cafmoda is force-quit or crashes.
   Unfinished recovery is retried on the next launch; a journal remains on disk
   until recovery succeeds. After a restart, recovery runs when Cafmoda next
@@ -52,12 +55,12 @@ checksums are on the
   Cafmoda's own automatic Low Power Mode does not stop its keep-awake controls.
   If you override the automatic mode, Cafmoda respects that choice until the lid
   opens or the power source changes. Power controls must be authorized first.
-- **Existing settings:** Cafmoda preserves power settings that already prevent
-  sleep, and changes made outside the app. Its cutoff releases its own controls;
+- **Existing settings:** Automatic recovery and battery protection preserve
+  settings changed outside the app. Its cutoff releases its own controls;
   it cannot guarantee system sleep when your baseline or another app prevents
-  it. The menu identifies an existing never-sleep baseline. Older versions did
-  not record originals; the update preserves the current settings rather than
-  guessing what they used to be.
+  it. If both controls are off but existing settings still prevent sleep,
+  choose **Restore Normal Sleep** to clear them. This also repairs never-sleep
+  settings left behind by older releases that did not record originals.
 - **Launch at Login:** enable it from the menu after installing in Applications.
   It is off by default, requires no admin access, and is unavailable during
   development hot reload. If you move the app, toggle it off and on again.

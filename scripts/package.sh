@@ -24,14 +24,18 @@ Caffeinate needs no administrator access. Choose Enable power controls in the
 menu for one-time administrator approval of Modafinilate and Low Power Mode.
 Users upgrading from an older release need to run this setup again.
 
-Cafmoda restores its saved power settings on disable or quit, with independent
-crash recovery. Keep-awake controls stop at 8% battery or below and respect
+Cafmoda restores its saved power settings on quit, with independent crash
+recovery. Turning Modafinilate off or choosing Turn Everything Off also allows
+system/lid sleep and replaces a disabled battery sleep timer with 5 minutes.
+Existing nonzero sleep timers are preserved. Keep-awake controls stop at 8%
+battery or below and respect
 user-enabled Low Power Mode. On battery with the lid closed, Cafmoda enables
 Low Power Mode and restores the prior mode when the lid opens or power returns.
 
-Existing never-sleep settings and other apps' sleep prevention are preserved.
-The battery cutoff releases Cafmoda's own controls; those existing settings can
-still keep the Mac awake. Closed-lid operation depends on hardware and macOS
+Choose Restore Normal Sleep if both controls are off but old settings still
+prevent sleep. Automatic recovery and the battery cutoff release Cafmoda's own
+controls, preserving external settings. Other apps can still prevent sleep.
+Closed-lid operation depends on hardware and macOS
 and is not verified on every supported configuration.
 TEXT
 OUTPUT="dist/Cafmoda-${VERSION}-macOS-${ARCH}.dmg"

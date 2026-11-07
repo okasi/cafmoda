@@ -151,6 +151,24 @@ export class PowerSettings {
     }
   }
 
+  // An explicit Off request also clears never-sleep values left by releases
+  // that had no recovery journal. Keep normal nonzero timers unchanged.
+  // These become the new baseline, so quitting must not undo this repair.
+  async allowSleep(): Promise<void> {
+    await this.restore(["sleep", "disablesleep"]);
+    for (const key of ["disablesleep", "sleep"] as const) {
+      const live = await this.read();
+      if (live[key] === undefined) {
+        throw new Error(`Cannot read ${key}; sleep repair incomplete`);
+      }
+      if (live[key] !== (key === "sleep" ? 0 : 1)) continue;
+      await this.set(key, key === "sleep" ? 5 : 0);
+      const remaining = this.#changes.filter((c) => c.key !== key);
+      await this.backend.save({ version: 1, changes: remaining });
+      this.#changes = remaining;
+    }
+  }
+
   private persist(): Promise<void> {
     return this.backend.save({ version: 1, changes: this.#changes });
   }
@@ -177,6 +195,11 @@ export class PowerPolicy {
   #autoSuppressed = false;
 
   constructor(readonly settings: PowerSettings) {}
+
+  async turnOff(): Promise<void> {
+    this.modafinilate = false;
+    await this.settings.allowSleep();
+  }
 
   async setModafinilate(on: boolean): Promise<void> {
     if (!on) {

@@ -81,6 +81,54 @@ Deno.test("preexisting never-sleep settings are preserved without claiming owner
   assert.deepEqual(backend.writes, []);
 });
 
+Deno.test("explicit Off repairs legacy never-sleep settings and keeps the repair on quit/relaunch", async () => {
+  const backend = new Backend();
+  backend.values = { sleep: 0, disablesleep: 1, lowpowermode: 1 };
+  const settings = new PowerSettings(backend);
+  const policy = new PowerPolicy(settings);
+  await policy.setModafinilate(true);
+  await policy.turnOff();
+  assert.equal(policy.modafinilate, false);
+  assert.deepEqual(backend.values, {
+    sleep: 5,
+    disablesleep: 0,
+    lowpowermode: 1,
+  });
+  assert.deepEqual(backend.journal.changes, []);
+  await settings.restore();
+  await new PowerSettings(backend).recover();
+  assert.equal(backend.values.sleep, 5);
+  assert.equal(backend.values.disablesleep, 0);
+});
+
+Deno.test("explicit Off preserves nonzero timers and independent energy recovery", async () => {
+  const backend = new Backend();
+  const settings = new PowerSettings(backend);
+  const policy = new PowerPolicy(settings);
+  await policy.setModafinilate(true);
+  await policy.reconcile(power({ lidClosed: true }), true);
+  await policy.turnOff();
+  assert.equal(backend.values.sleep, 17);
+  assert.equal(backend.values.disablesleep, 0);
+  assert.deepEqual(settings.changes.map((c) => c.key), ["lowpowermode"]);
+  await settings.restore();
+  assert.equal(backend.values.lowpowermode, 0);
+});
+
+Deno.test("explicit Off can repair an already-off session, reports failures and allows retry", async () => {
+  const backend = new Backend();
+  backend.values = { sleep: 0, disablesleep: 1, lowpowermode: 0 };
+  const policy = new PowerPolicy(new PowerSettings(backend));
+  backend.failWrite = "disablesleep";
+  await assert.rejects(() => policy.turnOff());
+  assert.equal(backend.journal.changes.length, 1);
+  backend.failWrite = null;
+  await policy.turnOff();
+  assert.equal(backend.values.disablesleep, 0);
+  assert.equal(backend.values.sleep, 5);
+  assert.deepEqual(backend.journal.changes, []);
+});
+
 Deno.test("cutoff is inclusive at 8%, applies on battery, and does not resume sessions", async () => {
   const backend = new Backend();
   const policy = new PowerPolicy(new PowerSettings(backend));

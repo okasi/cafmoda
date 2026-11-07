@@ -227,8 +227,11 @@ function buildMenu(s: State): TrayMenuItem[] {
     ...(s.baselinePreventsSleep
       ? [{
         item: {
-          label: "Existing settings also prevent system sleep",
-          enabled: false,
+          label: "Restore Normal Sleep",
+          id: "restore-sleep",
+          enabled: !recoveryPending,
+          tooltip:
+            "Allow lid sleep and restore a 5-minute battery sleep timer if disabled.",
         },
       }]
       : []),
@@ -376,6 +379,15 @@ function handleMenuClick(id: string | undefined): void {
     }
     await reconcile();
     const s = await readState();
+    if (id === "restore-sleep") {
+      if (!sudoOk) {
+        sudoOk = await installSudoers();
+        if (!sudoOk) return;
+      }
+      await setCaffeinate(false);
+      await policy.turnOff();
+      return;
+    }
     if (s.blocked && !s.caffeinate && !s.pmset) return;
     if (id === "toggle-caffeinate") {
       if (!s.blocked || s.caffeinate) await setCaffeinate(!s.caffeinate);
@@ -389,8 +401,13 @@ function handleMenuClick(id: string | undefined): void {
         await reconcile();
         if ((await readState()).blocked) return;
       }
-      await policy.setModafinilate(on);
-      if (id === "toggle-all") await setCaffeinate(on);
+      if (on) {
+        await policy.setModafinilate(true);
+        if (id === "toggle-all") await setCaffeinate(true);
+      } else {
+        if (id === "toggle-all") await setCaffeinate(false);
+        await policy.turnOff();
+      }
     }
   });
 }
